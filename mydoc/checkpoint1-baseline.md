@@ -12,6 +12,7 @@ Repo: `K4-DAY26-VuMinhHoang-2A202602371-Colosseum-Agent-Arena-Kit`
 - Python 3.12.10, pytest 8.3.4.
 - World export: không có; `kit/world/` chỉ chứa mã nguồn.
 - `py -3.12 spar.py --bot rookie --as all --rounds 2 --seed 1` dừng với thông báo cần world export. Hai bot còn lại dùng cùng cơ chế spar nên cũng đang bị chặn bởi điều kiện này.
+- Đã thử lại từng lệnh `py -3.12 spar.py --bot {rookie,operator,adversary} --as all --seed 1`; cả ba đều dừng trước khi bắt đầu trận với cùng thông báo thiếu world.
 - `py -3.12 -m kit.gate_no_key`: **PASS**, 96 file quét, 0 vi phạm.
 - Đã chạy nhóm kiểm tra không cần thao tác filesystem tạm: `py -3.12 -m pytest tests/test_prosecute.py tests/test_loop.py tests/test_cost.py tests/test_spar.py tests/test_anchor.py -k "not find_real_corpus_root_is_independent_of_clone_depth" --tb=short -q -p no:cacheprovider --basetemp .pytest-tmp2`: **4065 passed, 2 skipped, 1 deselected**.
 - Full suite không thể đánh giá trong sandbox hiện tại: nhiều test cần tạo/duyệt/xóa thư mục tạm và gặp `PermissionError` khi truy cập temp path. Các lỗi đó không được quy kết là lỗi logic của sản phẩm.
