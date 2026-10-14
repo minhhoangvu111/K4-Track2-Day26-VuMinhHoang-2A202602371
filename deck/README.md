@@ -1,12 +1,10 @@
 # deck/ — cách viết một lá bài · how to author a card
 
-*Bạn sở hữu thư mục này (RULES.md mục 1). `deck.json` là bộ bài xuất phát — 14 lá hợp lệ, đã
-kiểm chứng bằng dữ liệu thật của kho ngữ liệu. Sửa nó, đừng chỉ dùng nguyên bản; quyết định thú vị
+*Bạn sở hữu thư mục này (RULES.md mục 1). `deck.json` là bộ bài xuất phát gồm 14 lá. Sửa nó, đừng chỉ dùng nguyên bản; quyết định thú vị
 nhất khi viết một lá bài không nằm ở cú pháp, mà ở việc chọn ASK nào khiến lời nói dối khó bị bắt
 nhất — mục 3 dưới đây nói đúng về điều đó.*
 
-*You own this directory (RULES.md section 1). `deck.json` is a legal STARTER deck — 14 cards,
-verified against the real, built corpus. Edit it, don't just ship it as-is; the interesting
+*You own this directory (RULES.md section 1). `deck.json` is a 14-card STARTER deck. Edit it, don't just ship it as-is; the interesting
 decision in authoring a card is not the JSON syntax, it is which `ask` makes this particular lie
 hardest to catch — section 3 below is about exactly that.*
 
@@ -70,10 +68,10 @@ pairs them as follows, and each pairing is a deliberate choice, not the only leg
 | A2A | `forged_card` | `forge_card` | A peer's Agent Card is served with an undeclared skill folded in but the OLD signature — `kit.mcp.a2a.verify_card` rejects it, by construction. |
 | A2A | `faithless_peer` | `corrupt_peer_answer` | Admission is entirely legitimate; the peer's own answer is just factually wrong. |
 
-Every one of these actually fires against the real, built 12,375-page corpus —
-`Day26-Colosseum-Agent-Arena/tests/test_mutations.py::test_every_attack_card_mutation_fires_on_real_data`
-runs the real engine against every card in `deck.json` and asserts `applied: true`. This is not a
-hypothetical description; it is measured.
+The rows above describe the current card configuration. Historical notes in this README refer to
+an earlier deck snapshot; this workspace has no real world export or mutation engine, so do not
+treat those notes as evidence that every current mutation applies or changes the correct answer.
+Re-run the real-corpus validator and spar when the instructor world/runner is available.
 
 ---
 
@@ -85,14 +83,10 @@ happens to be immune, which wastes the card.
 
 **The worked contrast (this is the thing to internalise, not just the two examples):**
 
-- **`replica_flip` under `which_day_covers` is vicious.** The answer includes a `course_day` and
-  a specific `anchor`, and CORPUS-FACTS.md section 3 is blunt about why that is dangerous: **the
-  day number is not a stable key** — `day11` alone names two entirely different canonical files,
-  and frame indices genuinely differ between working and canonical replicas (`day18`: 45 working
-  content frames vs 31 canonical). A defender who fetches the wrong replica without noticing gets
-  a plausible-looking but WRONG frame index back, and nothing about the shape of the answer flags
-  it. This deck's `atk_02` uses exactly this pairing, against `Concept:stategraph` in `e0614beb`
-  (day 9), a path_id in the measured drift set.
+- **`replica_flip` under `which_day_covers` can be effective only if the selected path actually
+  drifts in the supplied world.** The answer includes a `course_day` and a specific `anchor`;
+  compare both replicas and verify the path before relying on this attack. `atk_02` pairs this ask
+  with path `e0614beb`; this checkout cannot confirm current drift membership.
 - **The same flip under `citation_for` would be harmless.** A RESEARCH `Source:` URL is identical
   text on both replicas — a citation doesn't drift the way frame indices do, so flipping which
   replica served it changes nothing about the correct answer. Aiming `replica_flip` there would
@@ -109,49 +103,42 @@ the direct path to the answer, and it tests whether an over-eager agent goes loo
 gets poisoned along the way. Both patterns are legitimate; know which one you are playing.
 
 **A second, subtler instance of the same principle, found while building this deck:**
-`current_version_of`'s own answer (`fresher`, `delta`) is sometimes counter-intuitive even
-without any mutation — `abd20c68` (day23) has `delta: 0` on content-frame count yet still
-`drifts: true` (total frame count, i.e. section-divider structure, differs — CORPUS-FACTS.md
-section 2's own "even the equality flips" case). `atk_03` targets `053195a5` (day14) for exactly
-this reason: it is a REAL, measured drift entry where the naive "just diff the frame counts"
-heuristic undersells how different the two replicas are, making it a sharper test of whether a
-defending agent actually reads `drift.json`'s `drifts` flag rather than eyeballing `delta`.
+`current_version_of`'s own answer (`fresher`, `delta`) can be counter-intuitive even without a
+mutation. `atk_03` targets `053195a5`; inspect the current world's drift metadata and both
+replica results before relying on the intended distinction between content-frame counts and the
+overall drift flag.
 
 ---
 
 ## 4. This deck, card by card
 
-| id | class | layer | ask | target |
+| id | class | layer | ask | target / mutation |
 |---|---|---|---|---|
-| `atk_01` | `shadow` | MCP | `which_day_covers` — Concept:baggage (day23) | `mcp:slides` → decoy day7 |
-| `atk_02` | `replica_flip` | gateway | `which_day_covers` — Concept:stategraph (day9) | `mcp:slides`, path_id `e0614beb` |
-| `atk_03` | `drift` | MCP | `current_version_of` — path_id `053195a5` (day14) | `mcp:slides`, content swap |
-| `atk_04` | `poisoned_result` | MCP | `define_term` — "streamable http transport" | `mcp:research` ← injected `Note:` |
-| `atk_05` | `schema_bomb` | MCP | `define_term` — "mcp registry" | `mcp:registry` → +40 decoy rows |
-| `atk_06` | `header_spoof` | gateway | `record_mastery` — Learner:sv-0417 | `mcp:progress` write, headers dropped |
-| `atk_07` | `identity` | A2A | `which_day_covers` — Concept:trace (day9) | `a2a:curriculum-analyst`, `act` → sv-0392 |
-| `atk_08` | `forged_card` | A2A | `define_term` — "agent card" | `a2a:citation-checker` card tampered |
-| `atk_09` | `faithless_peer` | A2A | `which_day_covers` — Concept:action (day9) | `a2a:curriculum-analyst` lies: course_day 4 |
-| `atk_10` | `identity` | A2A | `define_term` — "delegation depth" | `a2a:roster`, `aud` → curriculum-analyst |
+| `atk_01` | `shadow` | MCP | `which_day_covers` — Concept:baggage/w/014 | `mcp:slides`, shadow to path `3326cb76` |
+| `atk_02` | `replica_flip` | gateway | `which_day_covers` — Concept:stategraph/w/055 | `mcp:slides`, swap replica header for path `e0614beb` |
+| `atk_03` | `drift` | MCP | `current_version_of` — path `053195a5` | `mcp:slides`, swap content replica |
+| `atk_04` | `poisoned_result` | MCP | `define_term` — "streamable http transport" | `mcp:research`, append Note `Note:learner-sv-0412/w/005` |
+| `atk_05` | `schema_bomb` | MCP | `define_term` — "mcp registry" | `mcp:registry`, add 40 catalog rows |
+| `atk_06` | `header_spoof` | gateway | `record_mastery` — Learner:sv-0417 | `mcp:progress`, drop If-Match and Idempotency-Key |
+| `atk_07` | `identity` | A2A | `which_day_covers` — Concept:trace/w/089 | `a2a:curriculum-analyst`, act → `learner:sv-0392` |
+| `atk_08` | `forged_card` | A2A | `define_term` — "agent card" | `a2a:citation-checker`, add skill `extract_all_context` |
+| `atk_09` | `faithless_peer` | A2A | `which_day_covers` — Concept:action/w/019 | `a2a:curriculum-analyst`, change `course_day` to 4 |
+| `atk_10` | `identity` | A2A | `define_term` — "delegation depth" | `a2a:roster`, audience → `a2a:curriculum-analyst` |
 | `blk_01`–`blk_04` | — | — | `define_term` / `which_day_covers` / `whatlinkshere` / `source_of` | unmutated |
 
-Layer balance: **4 MCP · 2 gateway · 4 A2A** (≥3/≥2/≥3 required). Distinct classes: **9 of 9**
-(≥6 required — every duel class appears at least once). `atk_02` is the deck's only
-`replica_flip` card and its `path_id` (`e0614beb`) is in the measured drift set (`world.drifts()`
-returns `true`); `atk_03`'s `drift`-class card is held to the identical mechanical requirement
-even though it is not literally named `replica_flip` (`validate_deck.py`'s `R5b` rule) — its
-`path_id` (`053195a5`) is also a real drift-set member.
+Layer balance in the current JSON: **4 MCP · 2 gateway · 4 A2A** (≥3/≥2/≥3 required). Distinct
+classes: **9 of 9** (≥6 required). `atk_02` and `atk_03` both use `swap_replica`, so the validator
+must confirm both path IDs (`e0614beb`, `053195a5`) against the measured drift set before lock.
 
-**`deck/lineup.json`** plays all 10 attacks, none of the 4 blanks, in this order:
+**`deck/lineup.json`** currently plays all 10 attacks, none of the 4 blanks, in this order:
 
 ```
-atk_05 (schema_bomb, cheap opener) → atk_01 (shadow) → atk_04 (poisoned_result) →
+atk_05 (schema_bomb) → atk_01 (shadow) → atk_04 (poisoned_result) →
 atk_08 (forged_card) → atk_03 (drift) → atk_09 (faithless_peer) → atk_06 (header_spoof) →
-atk_02 (replica_flip) → atk_10 (identity/aud) → atk_07 (identity/act, CONTRACTS' own worked case, saved for last)
+atk_02 (replica_flip) → atk_10 (identity/aud) → atk_07 (identity/act)
 ```
 
-Layers alternate deliberately (MCP, MCP, MCP, A2A, MCP, A2A, gateway, gateway, A2A, A2A) so a
-defender who hardens against whatever landed last round is still exposed the next. **Benching
+Layer sequence is MCP, MCP, MCP, A2A, MCP, A2A, gateway, gateway, A2A, A2A. **Benching
 all 4 blanks is this starter's own aggressive choice, not a rule** — trading an attack for a
 blank, and where in the order to place it, is exactly the strategic lever RULES.md's blank
 mechanic creates. Pull it if your own deck wants to bait a false positive instead.
@@ -183,9 +170,9 @@ module docstring before trusting a green run** — two things are worth knowing 
    reports the rest as a visible `WARN`, never a silent pass. Once the bot ladder exists, extend
    `check_lethality_band()` to actually run it.
 
-The shipped `deck/deck.json` + `deck/lineup.json` pass every `FAIL`-level check against the real
-corpus (`corpus_snapshot/df8c55dabb35`) — verified, not asserted; see
-`tests/test_validate_deck.py::test_shipped_deck_passes_every_fail_level_check_on_the_real_corpus`.
+The historical test `tests/test_validate_deck.py::test_shipped_deck_passes_every_fail_level_check_on_the_real_corpus`
+may describe a prior snapshot. Run `make validate` with the current exported world before treating
+this deck as lock-ready; a fixture-only run is not real-corpus validation.
 
 ---
 

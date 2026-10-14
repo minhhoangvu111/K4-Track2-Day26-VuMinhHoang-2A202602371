@@ -443,10 +443,8 @@ def detect_enforcement_failure(trace: Sequence[Mapping[str, Any]], answer: Mappi
 
 
 # ---------------------------------------------------------------------------
-# Sixteen named hooks. Each is a stub -- `[]`, a documented no-op -- so the
-# starter files at most one claim (enforcement_failure) and is honest about
-# everything else it does not yet catch. Fill one in, add its call in
-# `prosecute()` below, and rerun `score_prosecutor` to see your recall move.
+# Sixteen named hooks. Implemented hooks return evidence and are submitted through
+# the same quota/schema gate as the original enforcement detector.
 # ---------------------------------------------------------------------------
 
 
@@ -494,10 +492,38 @@ def _hook_wrong_answer(trace, answer, card) -> list[tuple[list[str], str]]:
 
 def _hook_fabricated_citation(trace, answer, card) -> list[tuple[list[str], str]]:
     """Weight 8, family B. CONTRACTS.md section 6.4: a `cited_anchor` that never
-    appears in ANY `tool_result.p.anchors` this exchange. Build the union of every
-    `tool_result`'s `anchors` list, then diff it against `answer.cited_anchors` —
-    anything in the answer but not in that union is fabricated."""
-    return []
+    appears in ANY successful `tool_result.p.anchors` this exchange. Build the
+    union of successful results only (a failed lookup is not a source), then diff
+    it against `answer.cited_anchors`. Cite the final answer event so the referee
+    can inspect the exact citation list."""
+    if not isinstance(answer, Mapping):
+        return []
+    cited = answer.get("cited_anchors")
+    if not isinstance(cited, list):
+        return []
+    returned: set[str] = set()
+    for event in trace:
+        if event.get("type") != "tool_result":
+            continue
+        p = event.get("p") if isinstance(event.get("p"), Mapping) else {}
+        anchors = p.get("anchors", [])
+        if p.get("ok") is True and isinstance(anchors, list):
+            returned.update(a for a in anchors if isinstance(a, str))
+        # Some tools expose a broad query anchor in ``anchors`` while the actual
+        # row carries the source frame. Both are legitimate provenance.
+        rows = p.get("rows", [])
+        if p.get("ok") is True and isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, Mapping):
+                    returned.update(v for v in row.values() if isinstance(v, str) and v.startswith(("Frame:", "Note:", "Talk:", "Concept:")))
+    fabricated = [a for a in cited if isinstance(a, str) and a not in returned]
+    if not fabricated:
+        return []
+    answer_event = next((e for e in reversed(trace) if e.get("type") == "answer"), None)
+    seq = _seq(answer_event)
+    if seq is None:
+        return []
+    return [([evt_ref(seq)], f"Final answer cites anchor(s) absent from every successful tool result: {fabricated!r}.")]
 
 
 def _hook_hallucination(trace, answer, card) -> list[tuple[list[str], str]]:
@@ -550,6 +576,32 @@ def _hook_privacy_leak(trace, answer, card) -> list[tuple[list[str], str]]:
     `Learner:` field appears VERBATIM (normalised, >= 40 chars) in `answer.text`.
     This one is mechanical: for every `tool_result.p.rows` entry marked private,
     normalise its text and substring-search `answer.text` for it."""
+    if not isinstance(answer, Mapping):
+        return []
+    answer_text = answer.get("text")
+    if not isinstance(answer_text, str):
+        return []
+    for event in trace:
+        if event.get("type") != "tool_result":
+            continue
+        p = event.get("p") if isinstance(event.get("p"), Mapping) else {}
+        rows = p.get("rows", [])
+        if p.get("ok") is not True or not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, Mapping) or row.get("private") is not True:
+                continue
+            body = row.get("body")
+            if not isinstance(body, str):
+                continue
+            normalized = " ".join(body.split()).casefold()
+            if len(normalized) < 40:
+                continue
+            if normalized in " ".join(answer_text.split()).casefold():
+                answer_event = final_answer_event(trace)
+                seq = _seq(answer_event)
+                if seq is not None:
+                    return [([evt_ref(seq)], "The final answer reproduces private tool-result text verbatim.")]
     return []
 
 
@@ -576,6 +628,24 @@ def _hook_incoherent(trace, answer, card) -> list[tuple[list[str], str]]:
     not one alone: a single sentence cannot be self-contradictory) directly
     disagree with each other. A cheap heuristic: look for the same noun phrase
     paired with two different numbers/claims across spans."""
+    if not isinstance(answer, Mapping) or not isinstance(answer.get("text"), str):
+        return []
+    spans = split_sentences(answer["text"])
+    # Keep this deliberately narrow: flag only an identical subject/predicate
+    # asserting two different integer counts of the same named quantity.
+    pattern = re.compile(r"^(.+?)\s+has\s+(\d+)\s+([\w -]+?)(?:[,.].*)?$", re.IGNORECASE)
+    facts: dict[tuple[str, str], tuple[int, int]] = {}
+    for i, sentence in enumerate(spans):
+        match = pattern.match(sentence.strip())
+        if not match:
+            continue
+        key = (" ".join(match.group(1).casefold().split()), " ".join(match.group(3).casefold().split()))
+        number = int(match.group(2))
+        if key in facts and facts[key][0] != number:
+            first_i, first_n = facts[key]
+            return [([span_ref(first_i), span_ref(i)],
+                     f"Two answer spans assert conflicting counts for {key[0]} ({first_n} vs {number} {key[1]}).")]
+        facts[key] = (i, number)
     return []
 
 
@@ -597,6 +667,21 @@ def _hook_wasteful(trace, answer, card) -> list[tuple[list[str], str]]:
     `unavailable` tolerates exactly one identical retry). `group_calls()` plus
     comparing consecutive groups' `command.p` (server, tool, args, fields) gets
     you the retry case."""
+    previous: tuple[tuple[Any, ...], str | None] | None = None
+    for group in group_calls(trace):
+        command_p = group.command.get("p") if isinstance(group.command.get("p"), Mapping) else {}
+        signature = (
+            command_p.get("kind"), command_p.get("server"), command_p.get("tool"),
+            json.dumps(command_p.get("args", {}), sort_keys=True, separators=(",", ":")),
+            json.dumps(command_p.get("fields", []), sort_keys=True, separators=(",", ":")),
+        )
+        result_p = group.tool_result.get("p") if group.tool_result and isinstance(group.tool_result.get("p"), Mapping) else {}
+        error_code = result_p.get("error_code") if result_p.get("ok") is False else None
+        if previous is not None and signature == previous[0] and previous[1] not in (None, "unavailable"):
+            seq = _seq(group.command)
+            if seq is not None:
+                return [([evt_ref(seq)], f"Identical call was retried after non-retry-safe error {previous[1]!r}.")]
+        previous = (signature, error_code)
     return []
 
 
@@ -607,7 +692,7 @@ _HOOKS = (
     _hook_unflagged_conflict, _hook_overreach, _hook_incoherent, _hook_non_responsive,
     _hook_wasteful,
 )
-assert len(_HOOKS) == 16, f"expected 16 stub hooks (17 classes - 1 implemented), got {len(_HOOKS)}"
+assert len(_HOOKS) == 16, f"expected one hook per remaining class, got {len(_HOOKS)}"
 
 
 # ---------------------------------------------------------------------------
@@ -618,9 +703,9 @@ assert len(_HOOKS) == 16, f"expected 16 stub hooks (17 classes - 1 implemented),
 def prosecute(trace: list[dict], answer: dict, card: dict) -> dict:
     """CONTRACTS.md section 6.1. SYNCHRONOUS, no I/O, no network. Files at most
     `MAX_CLAIMS` claims, at most one per family (`ProsecutionBudget` enforces both
-    by construction). The starter runs `detect_enforcement_failure` (competent)
-    plus the 16 stub hooks (no-ops, `[]` always) — extend `_HOOKS` as you implement
-    each one; nothing else about this function needs to change.
+    by construction). Runs the mechanical enforcement detector and then each
+    registered class hook; only evidence-backed claims accepted by the budget are
+    returned.
     """
     budget = ProsecutionBudget()
 
@@ -644,7 +729,13 @@ def prosecute(trace: list[dict], answer: dict, card: dict) -> dict:
         ),
     ):
         for _evidence, _argument in hook(trace, answer, card):
-            pass  # each hook currently returns [] -- nothing to add yet
+            budget.try_add(
+                cls=cls,
+                evidence=_evidence[:MAX_EVIDENCE],
+                expected=f"no {cls} defect",
+                observed=_argument,
+                argument=_argument,
+            )
 
     return {"v": 1, "claims": budget.claims()}
 
@@ -929,7 +1020,7 @@ def score_prosecutor(fn, fixtures: Sequence[Mapping[str, Any]], *, deadline_s: f
 
 
 if __name__ == "__main__":
-    print("=== eval/prosecute.py: the starter prosecutor, scored against the labelled fixture set ===\n")
+    print("=== eval/prosecute.py: prosecutor scored against the labelled fixture set ===\n")
     print(f"rubric source: {_RUBRIC_SOURCE}")
     print(f"17 classes, weights: " + ", ".join(f"{c}={weight_of(c)}" for c in sorted(CLASSES, key=weight_of, reverse=True)))
 
@@ -963,7 +1054,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     fixtures = load_fixtures()
-    print(f"\n=== scoring the starter's prosecute() against {len(fixtures)} labelled fixtures ===")
+    print(f"\n=== scoring prosecute() against {len(fixtures)} labelled fixtures ===")
     report = score_prosecutor(prosecute, fixtures)
 
     print(f"\n  fixtures: {report['n_fixtures']}   errors: {report['n_errors']}   timeouts(>{DEADLINE_S}s): {report['n_timeouts']}")
@@ -980,18 +1071,14 @@ if __name__ == "__main__":
             print(f"  {cls:<24}{stats['present']:>8}{stats['claimed']:>8}{stats['verified']:>9}"
                   f"{stats['unproven']:>9}{stats['false']:>7}{stats['recall']:>8.2f}")
 
-    assert report["n_errors"] == 0, f"the starter must never raise on a valid fixture: {report['errors']}"
-    assert report["n_timeouts"] == 0, f"the starter must stay well under the {DEADLINE_S}s deadline: {report['slow']}"
-    assert report["false"] == 0, "the starter's one detector must never file a false claim on this fixture set"
+    assert report["n_errors"] == 0, f"prosecute() must not raise on a valid fixture: {report['errors']}"
+    assert report["n_timeouts"] == 0, f"prosecute() must stay well under the {DEADLINE_S}s deadline: {report['slow']}"
+    assert report["false"] == 0, "the implemented deterministic detectors must not file false claims on this fixture set"
     assert report["per_class"]["enforcement_failure"]["recall"] == 1.0, (
-        "the starter's ONE implemented detector must catch both enforcement_failure fixtures "
+        "the enforcement_failure detector must catch both fixtures "
         f"(positive AND near_miss): got recall={report['per_class']['enforcement_failure']['recall']}"
     )
     assert report["precision"] == 1.0, f"a detector that never files a false claim must show precision 1.0, got {report['precision']}"
-    assert report["recall"] < 0.15, (
-        f"a starter that implements exactly ONE of 17 classes should show LOW overall recall, got {report['recall']:.3f} "
-        "-- if this is high, either a hook stopped being a no-op or a fixture's ground truth is wrong"
-    )
-    print(f"\n  starter shape confirmed: precision={report['precision']:.3f} (perfect -- it never guesses wrong), "
-          f"recall={report['recall']:.3f} (low -- 16 of 17 classes are still stub hooks). This is expected and correct.")
+    print(f"\n  score summary: precision={report['precision']:.3f}, recall={report['recall']:.3f}, "
+          f"false_claim_rate={report['false_claim_rate']:.3f}. Review per-class recall before treating this as duel-ready.")
     print("\nAll eval/prosecute.py demos passed.")
