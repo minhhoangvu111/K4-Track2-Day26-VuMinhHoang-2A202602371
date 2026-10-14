@@ -189,3 +189,4 @@ Hoàn thành đủ ba nhiệm vụ trong mỗi vòng đấu của lab Day 26 (MC
 
 - **Phase 0:** Python 3.12 đã được xác nhận, key gate đạt và test độc lập chạy được; world thật chưa có nên readiness/doctor đầy đủ đang chờ world export. Xem `mydoc/checkpoint1-baseline.md` phần môi trường.
 - **Phase 1:** baseline fixture/demo đã được ghi; checkpoint spar với Rookie/Operator/Adversary chưa hoàn tất do thiếu world thật. Xem [checkpoint1-baseline.md](checkpoint1-baseline.md) để biết kết quả đo, lỗi demo starter và lệnh tái lập.
+- **Phase 2:** gateway và answer-review API đã được triển khai trong `agent/`; demos và bộ kiểm thử tập trung đã đạt ở lần kiểm tra gần nhất. Chưa thể coi C2 tích hợp hoàn toàn: harness xử lý `ANSWER` ngoài `Gateway.decide`, và wiring tại `kit/loop` nằm ngoài thư mục được phép sửa. Xem [checkpoint2-defense.md](checkpoint2-defense.md) để biết phạm vi, kết quả và phần cần nối khi có answer-assembly hook.

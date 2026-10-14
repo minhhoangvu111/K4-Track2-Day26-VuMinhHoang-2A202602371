@@ -1,10 +1,9 @@
 """agent/strategy.py — discovery, delegation, caching, replica, and budget
 POLICY. Where `agent/gateway.py` is the control plane (route / admit /
-authorize / budget — the four JOBS a decision must do), this file is the
-building blocks a real answer to those jobs is made of. Nothing here is
-wired into `Gateway.decide` by default — see agent/gateway.py's own module
-docstring and agent/README.md's table for where each piece is meant to
-plug in. That wiring is the assignment, not a step you're missing.
+authorize / budget — the four jobs a decision must do), this file provides
+the policy helpers. The gateway uses cost, mask, and successor helpers;
+result caching and replica selection need trusted result/drift data from the
+caller and are not guessed here.
 
 THE ARITHMETIC THAT MAKES THIS FILE'S EXISTENCE THE LESSON
 ----------------------------------------------------------------------------
@@ -75,6 +74,8 @@ except ImportError:  # pragma: no cover - collaborator file
         (server, tool) pairs this file's functions/demo touch. Real pricing
         always comes from kit.mcp.specs when it is importable — this table
         exists so the file still RUNS, not so it stays authoritative."""
+        if (server, tool) == ("slides", "get_frame") and fields == ("*",):
+            return 9
         anchors = {
             ("slides", "query"): 4,  # fields=[title,body], n_rows=1
             ("slides", "get_frame"): 4,  # default fields
@@ -404,13 +405,10 @@ if __name__ == "__main__":
         f"  disciplined (ceiling, {disciplined}cr) x10 rounds -> spent={disciplined_pacer.credits_spent} "
         f"credits_left={disciplined_pacer.credits_left} bankrupt_by={disciplined_pacer.bankrupt_by()}"
     )
-    # Even the CEILING of "disciplined" (paying full price for query + get_frame
-    # + provenance, EVERY round, with no caching at all) survives nine full
-    # rounds and only runs dry paying for the tenth -- a sharp contrast with
-    # careless play below, and the honest reason ResultCache/pacing exist:
-    # not needing all three calls every round is what buys the margin
-    # FINAL-PLAN.md 4.3 calls "sustainable".
-    assert disciplined_pacer.bankrupt_by() == ROUNDS_PER_DUEL, disciplined_pacer.bankrupt_by()
+    # With the shipped D-10 spec, the disciplined ceiling costs 9 credits,
+    # so ten rounds spend 90 of 100 and do not go bankrupt.
+    assert disciplined_pacer.bankrupt_by() is None, disciplined_pacer.bankrupt_by()
+    assert disciplined_pacer.credits_left == 100 - disciplined * ROUNDS_PER_DUEL
     nine_rounds_pacer = BudgetPacer()
     for round_no in range(1, ROUNDS_PER_DUEL):  # 9 rounds, not 10
         nine_rounds_pacer.record_spend(round_no, disciplined)

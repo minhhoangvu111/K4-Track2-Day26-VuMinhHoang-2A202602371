@@ -7,8 +7,8 @@ classes (CONTRACTS.md section 6.1) each one can save you from.
                      (CONTRACTS.md section 4, exactly)
     strategy.py      discovery / delegation / caching / replica / budget
                      policy — building blocks, not wired in by default
-    guardrails.py    grounding (real), injection/redaction/arithmetic
-                     (named stubs), abstention (real, naive)
+    guardrails.py    grounding, injection scanning, redaction, arithmetic,
+                     and answer review (deterministic heuristics)
     telemetry.py     ctx.emit wrappers — your own side only, never scored
     prompt.md        the system prompt LAYERED ON TOP of kit.loop.prompt's
                      harness prompt (not a replacement for it)
@@ -21,7 +21,7 @@ rule 2) — these four imports are expected to always succeed together:
 
     from agent import Command, Decision, GatewayContext, Gateway
     from agent import BudgetPacer, ResultCache, should_delegate
-    from agent import GroundingResult, check_grounding, abstention_policy
+    from agent import GroundingResult, check_grounding, abstention_policy, review_answer
     from agent import Telemetry, RecordingGatewayContext
 """
 
@@ -36,6 +36,8 @@ from agent.guardrails import (
     abstention_policy,
     check_grounding,
     redact,
+    AnswerReview,
+    review_answer,
     scan_for_injected_instructions,
     verify_arithmetic,
 )
@@ -69,6 +71,8 @@ __all__ = [
     "ArithmeticCheckResult",
     "verify_arithmetic",
     "abstention_policy",
+    "AnswerReview",
+    "review_answer",
     # strategy.py
     "BudgetPacer",
     "ReplicaChoice",
@@ -92,7 +96,7 @@ if __name__ == "__main__":
         print(f"  {name}")
     assert {"Command", "Decision", "Gateway", "GatewayContext"} <= set(__all__)
     assert {"BudgetPacer", "ResultCache", "should_delegate"} <= set(__all__)
-    assert {"GroundingResult", "check_grounding", "abstention_policy"} <= set(__all__)
+    assert {"GroundingResult", "check_grounding", "abstention_policy", "AnswerReview", "review_answer"} <= set(__all__)
     assert {"Telemetry", "RecordingGatewayContext"} <= set(__all__)
     print(f"\n  {len(__all__)} public names, all import cleanly from `agent`.")
 
